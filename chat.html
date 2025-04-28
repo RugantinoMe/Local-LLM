@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat con FastAPI</title>
+</head>
+<body>
+  <h1>Chat con il tuo Assistant Locale (FastAPI)</h1>
+  <textarea id="input" rows="4" cols="50" placeholder="Scrivi la tua domanda qui..."></textarea><br>
+  <button onclick="inviaMessaggio()">Invia</button>
+
+  <h2>Risposta:</h2>
+  <div id="risposta" style="white-space: pre-line; border:1px solid #000; padding:10px; width:50%;"></div>
+
+  <script>
+    async function inviaMessaggio() {
+      const messaggio = document.getElementById('input').value;
+      if (!messaggio.trim()) {
+        alert("Inserisci un messaggio prima di inviare!");
+        return;
+      }
+
+      try {
+        const response = await fetch('http://127.0.0.1:8000/ricorda', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ messaggio: messaggio })
+        });
+
+        if (!response.ok) {
+          throw new Error('Errore nella risposta dal server');
+        }
+
+        const dati = await response.json();
+        document.getElementById('risposta').innerText = dati.messaggio || 'Nessuna risposta ricevuta.';
+      } catch (error) {
+        console.error('Errore nella richiesta:', error);
+        alert('Errore di connessione al server.');
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+FROM mistral
+PARAMETER gpu=true

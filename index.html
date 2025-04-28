@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Lobe Chat - Test UI</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f0f0; padding: 20px; }
+        #chat { background: white; padding: 15px; max-width: 600px; margin: auto; border-radius: 10px; }
+        .msg { margin-bottom: 10px; padding: 8px; background: #e2e2ff; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="chat">
+        <h2>Lobe Chat (Test Locale)</h2>
+        <input id="input" type="text" placeholder="Scrivi un messaggio..." style="width: 100%; padding: 10px;">
+        <button onclick="invia()" style="margin-top: 10px;">Invia</button>
+        <div id="risposte" style="margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        async function invia() {
+            const msg = document.getElementById('input').value;
+            if (!msg) return;
+            await fetch("http://127.0.0.1:8000/ricorda", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ messaggio: msg })
+            });
+            document.getElementById('input').value = "";
+            carica();
+        }
+
+        async function carica() {
+            const res = await fetch("http://127.0.0.1:8000/ricordi");
+            const data = await res.json();
+            const r = document.getElementById('risposte');
+            r.innerHTML = "";
+            data.forEach(item => {
+                const div = document.createElement("div");
+                div.className = "msg";
+                div.textContent = `[${item.timestamp}] ${item.content}`;
+                r.appendChild(div);
+            });
+        }
+
+        window.onload = carica;
+    </script>
+</body>
+</html>

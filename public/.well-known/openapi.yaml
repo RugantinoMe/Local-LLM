@@ -1,0 +1,42 @@
+openapi: 3.0.1
+info:
+  title: Lobe Memory Plugin
+  description: Plugin che consente di leggere e scrivere ricordi persistenti.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8000
+paths:
+  /ricorda:
+    post:
+      summary: Salva un nuovo ricordo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messaggio:
+                  type: string
+      responses:
+        '200':
+          description: Messaggio salvato
+  /ricordi:
+    get:
+      summary: Recupera tutti i ricordi salvati
+      responses:
+        '200':
+          description: Lista dei ricordi
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    role:
+                      type: string
+                    content:
+                      type: string
+                    timestamp:
+                      type: string

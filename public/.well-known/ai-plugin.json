@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Lobe Memory",
+  "name_for_model": "lobe_memory_plugin",
+  "description_for_human": "Plugin per leggere e scrivere ricordi persistenti.",
+  "description_for_model": "Usa questo plugin per salvare e recuperare i ricordi da un backend SQLite locale.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "http://localhost:8000/.well-known/openapi.yaml"
+  },
+  "logo_url": "http://localhost:8000/logo.png",
+  "contact_email": "support@example.com",
+  "legal_info_url": "http://localhost:8000/legal"
+}
