@@ -22,6 +22,14 @@ from langchain_core.runnables import RunnableWithMessageHistory
 from file_versioning import router as versioning_router
 from file_versioning import save_file_version
 
+# Importa il router file_management
+from file_management import router as file_router
+
+
+# Import embedding management
+from memory_embeddings import embed_all_records
+from memory_embeddings import search_similar_memories
+
 print("[DEBUG] main.py caricato correttamente.")
 
 # =====================================
@@ -37,7 +45,8 @@ global_cursor.execute('''
         response TEXT,
         tag TEXT,
         scope TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        embedding TEXT
     );
 ''')
 global_conn.commit()
@@ -71,14 +80,9 @@ conversation_chain = RunnableWithMessageHistory(
 )
 
 # =====================================
-# Warmup iniziale tecnico per attivazione GPU
+# Warmup disattivato
 # =====================================
-try:
-    print("[WARMUP] Avvio warmup iniziale del modello...")
-    llm.invoke("Simula una discussione tecnica complessa tra due sviluppatori sul refactoring del codice legacy in un sistema distribuito su larga scala.")
-    print("[WARMUP] Warmup completato.")
-except Exception as e:
-    print(f"[WARMUP] Errore durante il warmup: {e}")
+# Warmup rimosso su richiesta, nessuna invocazione iniziale di modelli
 
 # =====================================
 # Funzione salvataggio
@@ -121,6 +125,7 @@ if os.path.isdir(public_path):
 
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 app.include_router(versioning_router, prefix="/versioning", tags=["versioning"])
+app.include_router(file_router, prefix="/file", tags=["file_management"])
 
 # =====================================
 # Endpoint di base
@@ -138,7 +143,7 @@ async def test_endpoint(request: Request):
     return {"message": "Test endpoint reached", "data": data}
 
 # =====================================
-# Endpoint /ricorda (con profiling dettagliato)
+# Endpoint /ricorda
 # =====================================
 @app.post("/ricorda")
 async def ricorda_dato(request: Request):
@@ -186,8 +191,42 @@ async def ricorda_dato(request: Request):
     }
 
 # =====================================
+# Endpoint /embed_all
+# =====================================
+@app.get("/embed_all")
+async def embed_all():
+    embed_all_records()
+    return {"status": "Embeddings creati correttamente."}
+
+from fastapi import Body
+
+@app.post("/search_memory")
+async def search_memory_endpoint(query: str = Body(..., embed=True)):
+    """Endpoint migliorato: cerca tra i 5 risultati più simili e prende il migliore sopra soglia."""
+    try:
+        results = search_similar_memories(query, top_k=5)  # Allarga la ricerca a 5
+        # Filtra solo i risultati sopra la soglia minima
+        filtered_results = [r for r in results if r["similarity"] >= 0.65]
+
+        if filtered_results:
+            best_result = max(filtered_results, key=lambda r: r["similarity"])
+            return {
+                "status": "ok",
+                "prompt": best_result["prompt"],
+                "response": best_result["response"],
+                "similarity": best_result["similarity"]
+            }
+        else:
+            return {
+                "status": "no_match",
+                "message": "Nessuna risposta sufficientemente pertinente trovata."
+            }
+    except Exception as e:
+        print(f"[ERRORE SEARCH MEMORY] {e}")
+        return {"error": str(e)}
+
+# =====================================
 # Avvio del server
 # =====================================
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
-
