@@ -13,20 +13,15 @@ import requests
 from sentence_transformers import SentenceTransformer
 import time
 
-# LangChain reintrodotto con profilo definitivo di produzione
+# LangChain + Ollama definitivo
 from langchain_ollama import OllamaLLM
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.runnables import RunnableWithMessageHistory
 
-# Importa il router e la funzione di versioning
+# Importa i router
 from file_versioning import router as versioning_router
 from file_versioning import save_file_version
-
-# Importa il router file_management
 from file_management import router as file_router
-
-
-# Import embedding management
 from memory_embeddings import embed_all_records
 from memory_embeddings import search_similar_memories
 
@@ -53,18 +48,21 @@ global_conn.commit()
 global_conn.close()
 
 # =====================================
-# LangChain + Ollama (Profilo definitivo di produzione)
+# LangChain + Ollama configurato correttamente
 # =====================================
 llm = OllamaLLM(
-    model="mistral:latest",
+    model="localmistralinstruct",
+    base_url="http://localhost:11434",
+    system_message="Sei un assistente conversazionale. Rispondi in modo naturale, amichevole ma conciso, mantenendo solo le informazioni tecnicamente essenziali.",
     options={
-        "num_predict": 150,
-        "temperature": 0.1,
+        "num_predict": 50,
+        "temperature": 0.5,
         "top_k": 1,
         "seed": 42,
         "repeat_last_n": 40
     }
 )
+
 memory_obj = SQLChatMessageHistory(
     session_id="test_session_id",
     connection_string=f"sqlite:///{DB_PATH}"
@@ -80,12 +78,7 @@ conversation_chain = RunnableWithMessageHistory(
 )
 
 # =====================================
-# Warmup disattivato
-# =====================================
-# Warmup rimosso su richiesta, nessuna invocazione iniziale di modelli
-
-# =====================================
-# Funzione salvataggio
+# Funzione salvataggio memoria
 # =====================================
 def save_memory(prompt, response, tag=None, scope=None):
     try:
@@ -124,6 +117,8 @@ if os.path.isdir(public_path):
     app.mount("/static", StaticFiles(directory=public_path, html=True), name="static")
 
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Registra i router
 app.include_router(versioning_router, prefix="/versioning", tags=["versioning"])
 app.include_router(file_router, prefix="/file", tags=["file_management"])
 
@@ -202,10 +197,9 @@ from fastapi import Body
 
 @app.post("/search_memory")
 async def search_memory_endpoint(query: str = Body(..., embed=True)):
-    """Endpoint migliorato: cerca tra i 5 risultati più simili e prende il migliore sopra soglia."""
+    """Cerca tra i 5 risultati più simili e prende il migliore sopra soglia."""
     try:
-        results = search_similar_memories(query, top_k=5)  # Allarga la ricerca a 5
-        # Filtra solo i risultati sopra la soglia minima
+        results = search_similar_memories(query, top_k=5)
         filtered_results = [r for r in results if r["similarity"] >= 0.65]
 
         if filtered_results:
@@ -226,7 +220,7 @@ async def search_memory_endpoint(query: str = Body(..., embed=True)):
         return {"error": str(e)}
 
 # =====================================
-# Avvio del server
+# Avvio server manuale
 # =====================================
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
