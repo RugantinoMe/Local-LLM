@@ -1,136 +1,198 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>LLM Locale - Chat</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local LLM</title>
   <style>
-    * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: Arial, sans-serif;
-      background-color: #f2f2f2;
       display: flex;
-      flex-direction: column;
       height: 100vh;
+      background: #f0f0f0;
     }
-
-    header {
-      background-color: #2b2b2b;
+    #sidebar {
+      width: 260px;
+      background: #111;
       color: white;
-      padding: 1rem;
-      text-align: center;
-      font-size: 1.4rem;
-    }
-
-    #chat-container {
-      flex: 1;
+      padding: 10px;
       display: flex;
       flex-direction: column;
-      padding: 1rem;
-      overflow-y: auto;
+      transition: transform 0.3s ease;
     }
-
-    .message {
-      margin-bottom: 1rem;
-      padding: 0.75rem;
-      border-radius: 8px;
-      white-space: pre-wrap;
+    #sidebar.hidden {
+      transform: translateX(-100%);
     }
-
-    .user {
-      background-color: #d1e7ff;
-      align-self: flex-end;
-    }
-
-    .bot {
-      background-color: #e4e4e4;
-      align-self: flex-start;
-    }
-
-    #input-container {
-      display: flex;
-      padding: 1rem;
-      background-color: #fff;
-      border-top: 1px solid #ccc;
-    }
-
-    textarea {
-      flex: 1;
-      resize: vertical;
-      min-height: 60px;
-      max-height: 200px;
-      padding: 10px;
-      font-size: 1rem;
-    }
-
-    button {
-      margin-left: 1rem;
-      padding: 0.75rem 1.25rem;
-      font-size: 1rem;
-      background-color: #0066cc;
+    #toggleSidebar {
+      position: absolute;
+      left: 260px;
+      top: 10px;
+      background: #111;
       color: white;
       border: none;
-      border-radius: 5px;
+      padding: 5px 10px;
       cursor: pointer;
     }
-
-    button:hover {
-      background-color: #005bb5;
+    #chat-container {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      overflow: hidden;
+    }
+    #chat-log {
+      flex-grow: 1;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      padding-right: 10px;
+    }
+    .message {
+      margin: 5px 0;
+      padding: 8px;
+      border-radius: 8px;
+      max-width: 70%;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .user {
+      background: #d1e7dd;
+      align-self: flex-end;
+    }
+    .bot {
+      background: #fff;
+      align-self: flex-start;
+    }
+    #chat-form {
+      display: flex;
+    }
+    #chat-input {
+      flex-grow: 1;
+      padding: 10px;
+      font-size: 16px;
+    }
+    #send-button {
+      padding: 10px 15px;
+      font-size: 16px;
+      background: #0069d9;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .sidebar-header {
+      font-weight: bold;
+      margin-bottom: 15px;
+    }
+    .sidebar-item {
+      margin: 5px 0;
+      padding: 5px;
+      cursor: pointer;
+    }
+    .sidebar-item:hover {
+      background-color: #222;
+    }
+    .chat-name {
+      font-size: 14px;
+      padding: 4px 0;
+      color: #ccc;
+      border-bottom: 1px solid #333;
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+    .chat-name:hover {
+      color: #fff;
     }
   </style>
 </head>
 <body>
-  <header>Chat LLM Locale (Streaming)</header>
-
-  <div id="chat-container"></div>
-
-  <div id="input-container">
-    <textarea id="prompt" placeholder="Scrivi il tuo messaggio..."></textarea>
-    <button onclick="sendPrompt()">Invia</button>
+  <div id="sidebar">
+    <div class="sidebar-header">Local LLM</div>
+    <div class="sidebar-item" onclick="startNewChat()">➕ Nuova chat</div>
+    <div class="sidebar-item">📁 Progetti</div>
+    <div class="sidebar-item">⚙️ Impostazioni</div>
+    <div id="chat-list">
+      <div class="chat-name" onclick="selectChat('default')">💬 Chat 1</div>
+    </div>
   </div>
-
+  <button id="toggleSidebar">☰</button>
+  <div id="chat-container">
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input type="text" id="chat-input" placeholder="Scrivi una domanda..." />
+      <button type="submit" id="send-button">Invia</button>
+    </form>
+  </div>
   <script>
-    const ws = new WebSocket("ws://localhost:8000/stream");
-    const chatContainer = document.getElementById("chat-container");
+    const toggleButton = document.getElementById("toggleSidebar");
+    const sidebar = document.getElementById("sidebar");
+    const chatForm = document.getElementById("chat-form");
+    const chatLog = document.getElementById("chat-log");
+    const chatInput = document.getElementById("chat-input");
+    const chatList = document.getElementById("chat-list");
 
-    ws.onopen = () => console.log("WebSocket connesso");
-    ws.onerror = (err) => console.error("Errore WebSocket:", err);
+    let currentChatId = "default";
+    let botDiv = null;
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.response === "[FINE]") {
-        const br = document.createElement("div");
-        br.className = "message bot";
-        br.textContent = "⏹ Fine risposta.";
-        chatContainer.appendChild(br);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-        return;
-      }
+    const socket = new WebSocket("ws://localhost:8000/stream");
 
-      let lastBot = chatContainer.querySelector(".message.bot:last-of-type");
-      if (!lastBot || lastBot.dataset.streaming !== "true") {
-        lastBot = document.createElement("div");
-        lastBot.className = "message bot";
-        lastBot.dataset.streaming = "true";
-        chatContainer.appendChild(lastBot);
-      }
-
-      lastBot.textContent += data.response;
-      chatContainer.scrollTop = chatContainer.scrollHeight;
+    socket.onopen = function () {
+      socket.send("switch_chat:" + currentChatId);
     };
 
-    function sendPrompt() {
-      const prompt = document.getElementById("prompt").value.trim();
-      if (!prompt) return;
+    socket.onmessage = function (event) {
+      const data = JSON.parse(event.data);
+      if (data.response === "[FINE]") {
+        botDiv = null;
+        return;
+      }
+      if (!botDiv) {
+        botDiv = document.createElement("div");
+        botDiv.className = "message bot";
+        botDiv.textContent = data.response;
+        chatLog.appendChild(botDiv);
+      } else {
+        botDiv.textContent += data.response;
+      }
+      chatLog.scrollTop = chatLog.scrollHeight;
+    };
 
-      const userMsg = document.createElement("div");
-      userMsg.className = "message user";
-      userMsg.textContent = prompt;
-      chatContainer.appendChild(userMsg);
+    chatForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      const userMessage = chatInput.value.trim();
+      if (userMessage) {
+        const userDiv = document.createElement("div");
+        userDiv.className = "message user";
+        userDiv.textContent = userMessage;
+        chatLog.appendChild(userDiv);
+        socket.send(userMessage);
+        chatInput.value = "";
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+    });
 
-      document.getElementById("prompt").value = "";
-      ws.send(prompt);
+    function startNewChat() {
+      const chatId = "chat_" + Date.now();
+      const chatName = `💬 ${chatId}`;
+      const chatDiv = document.createElement("div");
+      chatDiv.className = "chat-name";
+      chatDiv.textContent = chatName;
+      chatDiv.onclick = () => selectChat(chatId);
+      chatList.appendChild(chatDiv);
+      selectChat(chatId);
     }
+
+    function selectChat(chatId) {
+      currentChatId = chatId;
+      chatLog.innerHTML = "";
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send("switch_chat:" + chatId);
+      }
+    }
+
+    toggleButton.onclick = () => {
+      sidebar.classList.toggle("hidden");
+      toggleButton.style.left = sidebar.classList.contains("hidden") ? "0" : "260px";
+    };
   </script>
 </body>
 </html>

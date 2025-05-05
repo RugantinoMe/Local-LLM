@@ -27,6 +27,7 @@ from file_versioning import save_file_version
 from file_management import router as file_router
 from memory_embeddings import embed_all_records
 from memory_embeddings import search_similar_memories
+from starlette.websockets import WebSocketState
 
 print("[DEBUG] main.py caricato correttamente.")
 
@@ -162,7 +163,7 @@ async def ricorda_dato(request: Request):
         return {"error": "Error parsing JSON"}
 
     try:
-        simili = [r for r in search_similar_memories(msg, top_k=10) if r["similarity"] >= 0.45][:3]
+        simili = [r for r in search_similar_memories(msg, top_k=1) if r["similarity"] >= 0.45][:3]
         contesto = "\n".join([f"Domanda: {clean_text(r['prompt'])}\nRisposta: {clean_text(r['response'])}" for r in simili])
         prompt_contestuale = f"{contesto}\n\nDomanda: {msg}"
         prompt_contestuale = clean_text(prompt_contestuale)  # Pulizia forzata su tutto prima di inviare
@@ -241,27 +242,49 @@ async def search_memory_endpoint(query: str = Body(..., embed=True)):
 async def websocket_stream(websocket: WebSocket):
     await websocket.accept()
     try:
+        current_chat = "default"
         while True:
-            prompt = await websocket.receive_text()
-            prompt = clean_text(prompt)
+            message = await websocket.receive_text()
+            if message.startswith("switch_chat:"):
+                current_chat = message.split(":", 1)[1]
+                print(f"[DEBUG] Switch chat ricevuto: {message}")
+                continue
+
+            prompt = clean_text(message)
             full_response = ""
+
             async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", "http://localhost:11434/api/generate", json={"model": "localmistralinstruct", "prompt": prompt, "stream": True}) as response:
+                async with client.stream(
+                    "POST",
+                    "http://localhost:11434/api/generate",
+                    json={
+                        "model": "localmistralinstruct",
+                        "prompt": prompt,
+                        "stream": True
+                    }
+                ) as response:
                     async for line in response.aiter_lines():
                         if line.strip():
                             try:
-                                content = line.split('data: ')[-1]
-                                parsed = json.loads(content)
-                                token = parsed.get("response", "")
-                                full_response += token
-                                await websocket.send_text(content)
-                            except Exception:
-                                continue
+                                content = json.loads(line.split("data: ")[-1])
+                                token = content.get("response", "")
+                                if token:
+                                    full_response += token
+                                    await websocket.send_text(json.dumps({"response": token}))
+                            except Exception as e:
+                                print("[DEBUG] Errore parsing stream:", e)
+
             await websocket.send_text(json.dumps({"response": "[FINE]"}))
-            save_memory(prompt, full_response, scope="default")
+            save_memory(prompt, full_response, scope=current_chat)
     except Exception as e:
-        await websocket.close()
-        print(f"[WebSocket] Connessione chiusa: {e}")
+        print("[WebSocket] Connessione chiusa:", e)
+        try:
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.close()
+        except:
+            pass
+
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
