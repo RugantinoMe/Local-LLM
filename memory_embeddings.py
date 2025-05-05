@@ -1,5 +1,5 @@
+
 import sqlite3
-import json
 import numpy as np
 from typing import List, Dict
 from sentence_transformers import SentenceTransformer
@@ -19,12 +19,13 @@ def generate_embedding(text: str) -> List[float]:
     return embedding
 
 def save_embedding(record_id: int, embedding: List[float]) -> None:
-    """Salva l'embedding JSON nel database per il record specificato."""
+    """Salva l'embedding come BLOB binario (non JSON)."""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
+    embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
     cursor.execute(
         "UPDATE memories SET embedding = ? WHERE id = ?",
-        (json.dumps(embedding), record_id)
+        (embedding_blob, record_id)
     )
     conn.commit()
     conn.close()
@@ -54,15 +55,19 @@ def search_similar_memories(query_text: str, top_k: int = 5) -> List[Dict]:
     conn.close()
 
     similarities = []
-    for record_id, prompt, response, embedding_json in rows:
-        embedding = json.loads(embedding_json)
-        similarity = cosine_similarity(query_embedding, embedding)
-        similarities.append({
-            "id": record_id,
-            "prompt": prompt,
-            "response": response,
-            "similarity": similarity
-        })
+    for record_id, prompt, response, embedding_blob in rows:
+        try:
+            embedding = np.frombuffer(embedding_blob, dtype=np.float32)
+            similarity = cosine_similarity(query_embedding, embedding)
+            print(f"[SIMILARITY CHECK] ID {record_id} | Similarity: {similarity:.4f} | Prompt: {prompt[:50]}...")
+            similarities.append({
+                "id": record_id,
+                "prompt": prompt,
+                "response": response,
+                "similarity": similarity
+            })
+        except Exception as e:
+            print(f"[ERRORE PARSING EMBEDDING ID {record_id}]: {e}")
 
     similarities.sort(key=lambda x: x["similarity"], reverse=True)
     return similarities[:top_k]

@@ -2,43 +2,134 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>Chat con FastAPI</title>
+  <title>LLM Locale - Chat</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f2f2f2;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background-color: #2b2b2b;
+      color: white;
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.4rem;
+    }
+
+    #chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+
+    .message {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      white-space: pre-wrap;
+    }
+
+    .user {
+      background-color: #d1e7ff;
+      align-self: flex-end;
+    }
+
+    .bot {
+      background-color: #e4e4e4;
+      align-self: flex-start;
+    }
+
+    #input-container {
+      display: flex;
+      padding: 1rem;
+      background-color: #fff;
+      border-top: 1px solid #ccc;
+    }
+
+    textarea {
+      flex: 1;
+      resize: vertical;
+      min-height: 60px;
+      max-height: 200px;
+      padding: 10px;
+      font-size: 1rem;
+    }
+
+    button {
+      margin-left: 1rem;
+      padding: 0.75rem 1.25rem;
+      font-size: 1rem;
+      background-color: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #005bb5;
+    }
+  </style>
 </head>
 <body>
-  <h1>Chat con il tuo Assistant Locale (FastAPI)</h1>
-  <textarea id="input" rows="4" cols="50" placeholder="Scrivi la tua domanda qui..."></textarea><br>
-  <button onclick="inviaMessaggio()">Invia</button>
+  <header>Chat LLM Locale (Streaming)</header>
 
-  <h2>Risposta:</h2>
-  <div id="risposta" style="white-space: pre-line; border:1px solid #000; padding:10px; width:50%;"></div>
+  <div id="chat-container"></div>
+
+  <div id="input-container">
+    <textarea id="prompt" placeholder="Scrivi il tuo messaggio..."></textarea>
+    <button onclick="sendPrompt()">Invia</button>
+  </div>
 
   <script>
-    async function inviaMessaggio() {
-      const messaggio = document.getElementById('input').value;
-      if (!messaggio.trim()) {
-        alert("Inserisci un messaggio prima di inviare!");
+    const ws = new WebSocket("ws://localhost:8000/stream");
+    const chatContainer = document.getElementById("chat-container");
+
+    ws.onopen = () => console.log("WebSocket connesso");
+    ws.onerror = (err) => console.error("Errore WebSocket:", err);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.response === "[FINE]") {
+        const br = document.createElement("div");
+        br.className = "message bot";
+        br.textContent = "⏹ Fine risposta.";
+        chatContainer.appendChild(br);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
         return;
       }
 
-      try {
-        const response = await fetch('http://127.0.0.1:8000/ricorda', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ messaggio: messaggio })
-        });
-
-        if (!response.ok) {
-          throw new Error('Errore nella risposta dal server');
-        }
-
-        const dati = await response.json();
-        document.getElementById('risposta').innerText = dati.messaggio || 'Nessuna risposta ricevuta.';
-      } catch (error) {
-        console.error('Errore nella richiesta:', error);
-        alert('Errore di connessione al server.');
+      let lastBot = chatContainer.querySelector(".message.bot:last-of-type");
+      if (!lastBot || lastBot.dataset.streaming !== "true") {
+        lastBot = document.createElement("div");
+        lastBot.className = "message bot";
+        lastBot.dataset.streaming = "true";
+        chatContainer.appendChild(lastBot);
       }
+
+      lastBot.textContent += data.response;
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    };
+
+    function sendPrompt() {
+      const prompt = document.getElementById("prompt").value.trim();
+      if (!prompt) return;
+
+      const userMsg = document.createElement("div");
+      userMsg.className = "message user";
+      userMsg.textContent = prompt;
+      chatContainer.appendChild(userMsg);
+
+      document.getElementById("prompt").value = "";
+      ws.send(prompt);
     }
   </script>
 </body>
