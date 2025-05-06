@@ -41,6 +41,11 @@
       padding: 20px;
       overflow: hidden;
     }
+    #chat-header {
+      font-weight: bold;
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
     #chat-log {
       flex-grow: 1;
       overflow-y: auto;
@@ -65,11 +70,18 @@
     }
     #chat-form {
       display: flex;
+      gap: 10px;
     }
     #chat-input {
       flex-grow: 1;
+      min-height: 4em;
+      resize: vertical;
       padding: 10px;
       font-size: 16px;
+      font-family: Arial, sans-serif;
+      line-height: 1.4;
+      border: 1px solid #ccc;
+      border-radius: 4px;
     }
     #send-button {
       padding: 10px 15px;
@@ -78,6 +90,7 @@
       color: white;
       border: none;
       cursor: pointer;
+      border-radius: 4px;
     }
     .sidebar-header {
       font-weight: bold;
@@ -98,8 +111,35 @@
       border-bottom: 1px solid #333;
       margin-bottom: 4px;
       cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chat-name input {
+      background: #111;
+      border: none;
+      color: #fff;
+      font-size: 14px;
+      width: 100%;
     }
     .chat-name:hover {
+      color: #fff;
+    }
+    .active-chat {
+      font-weight: bold;
+      color: #0ff;
+    }
+    .chat-controls {
+      display: flex;
+      gap: 4px;
+    }
+    .chat-controls button {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+    }
+    .chat-controls button:hover {
       color: #fff;
     }
   </style>
@@ -108,91 +148,178 @@
   <div id="sidebar">
     <div class="sidebar-header">Local LLM</div>
     <div class="sidebar-item" onclick="startNewChat()">➕ Nuova chat</div>
-    <div class="sidebar-item">📁 Progetti</div>
-    <div class="sidebar-item">⚙️ Impostazioni</div>
-    <div id="chat-list">
-      <div class="chat-name" onclick="selectChat('default')">💬 Chat 1</div>
-    </div>
+        <div class="sidebar-item">⚙️ Impostazioni</div>
+    <div id="chat-list"></div>
   </div>
   <button id="toggleSidebar">☰</button>
   <div id="chat-container">
+    <div id="chat-header">Chat attiva: <span id="current-chat-name">Chat 1</span></div>
     <div id="chat-log"></div>
     <form id="chat-form">
-      <input type="text" id="chat-input" placeholder="Scrivi una domanda..." />
+      <textarea id="chat-input" placeholder="Scrivi una domanda..." rows="4"></textarea>
       <button type="submit" id="send-button">Invia</button>
     </form>
   </div>
+  
   <script>
-    const toggleButton = document.getElementById("toggleSidebar");
-    const sidebar = document.getElementById("sidebar");
-    const chatForm = document.getElementById("chat-form");
+    const socket = new WebSocket("ws://localhost:8000/stream");
     const chatLog = document.getElementById("chat-log");
     const chatInput = document.getElementById("chat-input");
     const chatList = document.getElementById("chat-list");
+    const currentChatName = document.getElementById("current-chat-name");
+    let currentChatId = null;
 
-    let currentChatId = "default";
-    let botDiv = null;
+    // === Carica chat all'avvio ===
+    function loadChats() {
+      fetch("http://localhost:8000/chats")
+        .then(res => res.json())
+        .then(chats => {
+          chatList.innerHTML = "";
+          chats.forEach(chat => {
+            const div = document.createElement("div");
+            div.className = "chat-name" + (chat.chat_id === currentChatId ? " active-chat" : "");
+            const span = document.createElement("span");
+span.textContent = chat.nome;
+span.onclick = () => selectChat(chat.chat_id, chat.nome);
 
-    const socket = new WebSocket("ws://localhost:8000/stream");
+const controls = document.createElement("div");
+controls.className = "chat-controls";
 
-    socket.onopen = function () {
-      socket.send("switch_chat:" + currentChatId);
-    };
+const renameBtn = document.createElement("button");
+renameBtn.textContent = "✏️";
+renameBtn.onclick = () => renameChat(chat.chat_id);
 
-    socket.onmessage = function (event) {
-      const data = JSON.parse(event.data);
-      if (data.response === "[FINE]") {
-        botDiv = null;
-        return;
-      }
-      if (!botDiv) {
-        botDiv = document.createElement("div");
-        botDiv.className = "message bot";
-        botDiv.textContent = data.response;
-        chatLog.appendChild(botDiv);
-      } else {
-        botDiv.textContent += data.response;
-      }
-      chatLog.scrollTop = chatLog.scrollHeight;
-    };
+const deleteBtn = document.createElement("button");
+deleteBtn.textContent = "🗑️";
+deleteBtn.onclick = () => deleteChat(chat.chat_id);
 
-    chatForm.addEventListener("submit", function (event) {
-      event.preventDefault();
-      const userMessage = chatInput.value.trim();
-      if (userMessage) {
-        const userDiv = document.createElement("div");
-        userDiv.className = "message user";
-        userDiv.textContent = userMessage;
-        chatLog.appendChild(userDiv);
-        socket.send(userMessage);
-        chatInput.value = "";
-        chatLog.scrollTop = chatLog.scrollHeight;
-      }
+controls.appendChild(renameBtn);
+controls.appendChild(deleteBtn);
+
+div.appendChild(span);
+div.appendChild(controls);
+            chatList.appendChild(div);
+          });
+        });
+    }
+
+    // === Seleziona chat ===
+    function selectChat(chatId, chatName) {
+      currentChatId = chatId;
+      currentChatName.textContent = chatName;
+      chatLog.innerHTML = "";
+      socket.send("switch_chat:" + chatId);
+      fetch("http://localhost:8000/storico/" + chatId)
+        .then(res => res.json())
+        .then(messages => {
+          messages.forEach(({ prompt, response }) => {
+            const userDiv = document.createElement("div");
+            userDiv.className = "message user";
+            userDiv.textContent = prompt;
+            chatLog.appendChild(userDiv);
+            const botDiv = document.createElement("div");
+            botDiv.className = "message bot";
+            botDiv.textContent = response;
+            chatLog.appendChild(botDiv);
+          });
+          chatLog.scrollTop = chatLog.scrollHeight;
+          loadChats(); // per aggiornare evidenziazione
+        });
+    }
+
+    // === Nuova chat ===
+    function startNewChat() {
+      const newId = "chat_" + Date.now();
+      const defaultName = "Nuova Chat";
+      fetch("http://localhost:8000/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: newId, nome: defaultName })
+      }).then(() => {
+        selectChat(newId, defaultName);
+        loadChats();
+      });
+    }
+
+    // === Rinomina chat ===
+    function renameChat(chatId) {
+      const newName = prompt("Nuovo nome chat:");
+      if (!newName) return;
+      fetch("http://localhost:8000/chats/" + chatId, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_name: newName })
+      }).then(() => {
+        if (chatId === currentChatId) currentChatName.textContent = newName;
+        loadChats();
+      });
+    }
+
+    // === Elimina chat ===
+    function deleteChat(chatId) {
+      if (!confirm("Vuoi davvero eliminare questa chat?")) return;
+      fetch("/chats/" + chatId, { method: "DELETE" })
+        .then(() => {
+          if (chatId === currentChatId) chatLog.innerHTML = "";
+          loadChats();
+        });
+    }
+
+    // === Invio messaggio ===
+    document.getElementById("chat-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const msg = chatInput.value.trim();
+      if (!msg || !currentChatId) return;
+
+      const userDiv = document.createElement("div");
+      userDiv.className = "message user";
+      userDiv.textContent = msg;
+      chatLog.appendChild(userDiv);
+
+      const botDiv = document.createElement("div");
+      botDiv.className = "message bot";
+      botDiv.textContent = "...";
+      chatLog.appendChild(botDiv);
+      chatInput.value = "";
+
+      socket.send(msg);
+      let fullResponse = "";
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.response === "[FINE]") {
+          botDiv.textContent = fullResponse;
+          chatLog.scrollTop = chatLog.scrollHeight;
+        } else {
+          fullResponse += data.response;
+          botDiv.textContent = fullResponse;
+        }
+      };
     });
 
-    function startNewChat() {
-      const chatId = "chat_" + Date.now();
-      const chatName = `💬 ${chatId}`;
-      const chatDiv = document.createElement("div");
-      chatDiv.className = "chat-name";
-      chatDiv.textContent = chatName;
-      chatDiv.onclick = () => selectChat(chatId);
-      chatList.appendChild(chatDiv);
-      selectChat(chatId);
-    }
-
-    function selectChat(chatId) {
-      currentChatId = chatId;
-      chatLog.innerHTML = "";
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send("switch_chat:" + chatId);
-      }
-    }
-
-    toggleButton.onclick = () => {
-      sidebar.classList.toggle("hidden");
-      toggleButton.style.left = sidebar.classList.contains("hidden") ? "0" : "260px";
+    // === All'avvio ===
+    socket.onopen = () => {
+      loadChats();
     };
-  </script>
+  
+// Rende accessibili le funzioni nel DOM
+window.startNewChat = startNewChat;
+window.renameChat = renameChat;
+window.deleteChat = deleteChat;
+window.selectChat = selectChat;
+
+// Abilita toggle sidebar
+document.getElementById("toggleSidebar").addEventListener("click", () => {
+  document.getElementById("sidebar").classList.toggle("hidden");
+});
+
+// Espone le funzioni globalmente per supportare gli onclick inline
+window.startNewChat = startNewChat;
+window.renameChat = renameChat;
+window.deleteChat = deleteChat;
+window.selectChat = selectChat;
+
+
+</script>
+
 </body>
 </html>

@@ -15,6 +15,8 @@ import json
 import unicodedata
 import httpx
 
+from fastapi import HTTPException
+
 from sentence_transformers import SentenceTransformer
 
 # LangChain + Ollama definitivo
@@ -63,6 +65,13 @@ cursor.execute('''
         embedding BLOB
     );
 ''')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS chats (
+        chat_id TEXT PRIMARY KEY,
+        nome TEXT
+    );
+''')
+
 conn.commit()
 conn.close()
 
@@ -129,11 +138,14 @@ def save_memory(prompt, response, tag=None, scope=None):
 # =====================================
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # oppure ["http://localhost:5500"] se usi live server
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 public_path = os.path.join(os.path.dirname(__file__), "public")
@@ -237,6 +249,20 @@ async def search_memory_endpoint(query: str = Body(..., embed=True)):
     except Exception as e:
         print(f"[ERRORE SEARCH MEMORY] {e}")
         return {"error": str(e)}
+    
+@app.get("/storico/{chat_id}")
+async def get_chat_history(chat_id: str):
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cur = conn.cursor()
+        cur.execute("SELECT prompt, response FROM memories WHERE scope = ? ORDER BY id ASC", (chat_id,))
+        rows = cur.fetchall()
+        conn.close()
+        return [{"prompt": row[0], "response": row[1]} for row in rows]
+    except Exception as e:
+        print(f"[ERRORE STORICO CHAT] {e}")
+        return {"error": str(e)}
+   
 
 @app.websocket("/stream")
 async def websocket_stream(websocket: WebSocket):
@@ -288,3 +314,70 @@ async def websocket_stream(websocket: WebSocket):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
+
+
+
+# =====================================
+# API REST per gestione Chat
+# =====================================
+class Chat(BaseModel):
+    chat_id: str
+    nome: str
+
+@app.get("/chats")
+def get_chats():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT chat_id, nome FROM chats")
+        chats = [{"chat_id": row[0], "nome": row[1]} for row in cursor.fetchall()]
+        return chats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.post("/chats")
+def create_chat(chat: Chat):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO chats (chat_id, nome) VALUES (?, ?)", (chat.chat_id, chat.nome))
+        conn.commit()
+        return {"status": "ok", "chat_id": chat.chat_id}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Chat con lo stesso ID già esistente.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.put("/chats/{chat_id}")
+def rename_chat(chat_id: str, new_name: str = Body(..., embed=True)):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE chats SET nome = ? WHERE chat_id = ?", (new_name, chat_id))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Chat non trovata.")
+        conn.commit()
+        return {"status": "renamed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.delete("/chats/{chat_id}")
+def delete_chat(chat_id: str):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Chat non trovata.")
+        conn.commit()
+        return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
