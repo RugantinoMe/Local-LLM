@@ -14,6 +14,7 @@ import time
 import json
 import unicodedata
 import httpx
+import html
 
 from fastapi import HTTPException
 
@@ -106,18 +107,25 @@ embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 # =====================================
 def save_memory(prompt, response, tag=None, scope=None):
     try:
-        prompt = clean_text(prompt)
-        response = clean_text(response)
+        # Escape HTML per evitare XSS, mantenendo intatti i newline
+        prompt   = html.escape(prompt)
+        response = html.escape(response)
 
+        # Calcola l’embedding (se hai già il modello caricato altrove, usa quello)
         embedding_model_local = SentenceTransformer("all-MiniLM-L6-v2")
-        combined_text = f"{prompt} {response}"
+        combined_text = f"{prompt}\n\n{response}"
         embedding = embedding_model_local.encode(combined_text)
         embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
 
+        # Inserimento in SQLite
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO memories (prompt, response, tag, scope, embedding) VALUES (?, ?, ?, ?, ?)",
+            """
+            INSERT INTO memories
+              (prompt, response, tag, scope, embedding)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             (prompt, response, tag, scope, embedding_blob)
         )
         conn.commit()

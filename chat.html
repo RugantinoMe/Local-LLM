@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Local LLM</title>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
   <style>
     body {
       margin: 0;
@@ -13,17 +17,20 @@
       background: #f0f0f0;
     }
     #sidebar {
-      width: 260px;
+      flex: 0 0 250px;
+      max-width: 250px;
+      min-width: 250px;
+      overflow-y: auto;
+      border-right: 1px solid #ccc;
       background: #111;
       color: white;
       padding: 10px;
       display: flex;
       flex-direction: column;
       transition: transform 0.3s ease;
+      box-sizing: border-box;
     }
-    #sidebar.hidden {
-      transform: translateX(-100%);
-    }
+    #sidebar.hidden { transform: translateX(-100%); }
     #toggleSidebar {
       position: absolute;
       left: 260px;
@@ -40,6 +47,7 @@
       flex-direction: column;
       padding: 20px;
       overflow: hidden;
+      box-sizing: border-box;
     }
     #chat-header {
       font-weight: bold;
@@ -47,30 +55,29 @@
       margin-bottom: 10px;
     }
     #chat-log {
-      flex-grow: 1;
+      flex: 1;
       overflow-y: auto;
-      margin-bottom: 10px;
-      padding-right: 10px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      box-sizing: border-box;
     }
     .message {
       margin: 5px 0;
       padding: 8px;
       border-radius: 8px;
       max-width: 70%;
-      white-space: pre-wrap;
       word-break: break-word;
+      white-space: pre-wrap;
     }
-    .user {
-      background: #d1e7dd;
-      align-self: flex-end;
-    }
-    .bot {
-      background: #fff;
-      align-self: flex-start;
-    }
+    .message.user { background: #d1e7dd; align-self: flex-end; }
+    .message.bot  { background: #fff;    align-self: flex-start; }
     #chat-form {
       display: flex;
       gap: 10px;
+      margin-top: 10px;
     }
     #chat-input {
       flex-grow: 1;
@@ -78,10 +85,9 @@
       resize: vertical;
       padding: 10px;
       font-size: 16px;
-      font-family: Arial, sans-serif;
-      line-height: 1.4;
       border: 1px solid #ccc;
       border-radius: 4px;
+      box-sizing: border-box;
     }
     #send-button {
       padding: 10px 15px;
@@ -92,55 +98,37 @@
       cursor: pointer;
       border-radius: 4px;
     }
-    .sidebar-header {
-      font-weight: bold;
-      margin-bottom: 15px;
-    }
-    .sidebar-item {
-      margin: 5px 0;
-      padding: 5px;
-      cursor: pointer;
-    }
-    .sidebar-item:hover {
-      background-color: #222;
-    }
+    .sidebar-header { font-weight: bold; margin-bottom: 15px; }
+    .sidebar-item { margin: 5px 0; padding: 5px; cursor: pointer; }
+    .sidebar-item:hover { background-color: #222; }
     .chat-name {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       font-size: 14px;
       padding: 4px 0;
       color: #ccc;
       border-bottom: 1px solid #333;
       margin-bottom: 4px;
       cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
-    .chat-name input {
-      background: #111;
-      border: none;
-      color: #fff;
-      font-size: 14px;
-      width: 100%;
-    }
-    .chat-name:hover {
-      color: #fff;
-    }
-    .active-chat {
-      font-weight: bold;
-      color: #0ff;
-    }
-    .chat-controls {
-      display: flex;
-      gap: 4px;
-    }
+    .chat-name.active-chat { color: #0ff; font-weight: bold; }
+    .chat-controls { display: flex; gap: 4px; }
     .chat-controls button {
-      background: none;
-      border: none;
-      color: #888;
-      cursor: pointer;
+      background: none; border: none; color: #888; cursor: pointer;
     }
-    .chat-controls button:hover {
-      color: #fff;
+    .chat-controls button:hover { color: #fff; }
+    /* Codice: wrap e scroll orizzontale */
+    pre.code-block {
+      white-space: pre-wrap !important;
+      overflow-x: auto !important;
+      background: #f6f6f6;
+      padding: 8px;
+      border-radius: 5px;
+      margin: 0;
+      font-family: monospace;
+      width: 100%;
+      box-sizing: border-box;
     }
   </style>
 </head>
@@ -148,19 +136,21 @@
   <div id="sidebar">
     <div class="sidebar-header">Local LLM</div>
     <div class="sidebar-item" onclick="startNewChat()">➕ Nuova chat</div>
-        <div class="sidebar-item">⚙️ Impostazioni</div>
+    <div class="sidebar-item">⚙️ Impostazioni</div>
     <div id="chat-list"></div>
   </div>
   <button id="toggleSidebar">☰</button>
   <div id="chat-container">
-    <div id="chat-header">Chat attiva: <span id="current-chat-name">Chat 1</span></div>
+    <div id="chat-header">
+      Chat attiva: <span id="current-chat-name">Nessuna</span>
+    </div>
     <div id="chat-log"></div>
     <form id="chat-form">
       <textarea id="chat-input" placeholder="Scrivi una domanda..." rows="4"></textarea>
       <button type="submit" id="send-button">Invia</button>
     </form>
   </div>
-  
+
   <script>
     const socket = new WebSocket("ws://localhost:8000/stream");
     const chatLog = document.getElementById("chat-log");
@@ -169,7 +159,6 @@
     const currentChatName = document.getElementById("current-chat-name");
     let currentChatId = null;
 
-    // === Carica chat all'avvio ===
     function loadChats() {
       fetch("http://localhost:8000/chats")
         .then(res => res.json())
@@ -177,75 +166,84 @@
           chatList.innerHTML = "";
           chats.forEach(chat => {
             const div = document.createElement("div");
-            div.className = "chat-name" + (chat.chat_id === currentChatId ? " active-chat" : "");
+            div.className = "chat-name" +
+              (chat.chat_id === currentChatId ? " active-chat" : "");
             const span = document.createElement("span");
-span.textContent = chat.nome;
-span.onclick = () => selectChat(chat.chat_id, chat.nome);
+            span.textContent = chat.nome;
+            span.onclick = () => selectChat(chat.chat_id, chat.nome);
 
-const controls = document.createElement("div");
-controls.className = "chat-controls";
+            const controls = document.createElement("div");
+            controls.className = "chat-controls";
+            const renameBtn = document.createElement("button");
+            renameBtn.textContent = "✏️";
+            renameBtn.onclick = () => renameChat(chat.chat_id);
+            const deleteBtn = document.createElement("button");
+            deleteBtn.textContent = "🗑️";
+            deleteBtn.onclick = () => deleteChat(chat.chat_id);
+            controls.append(renameBtn, deleteBtn);
 
-const renameBtn = document.createElement("button");
-renameBtn.textContent = "✏️";
-renameBtn.onclick = () => renameChat(chat.chat_id);
-
-const deleteBtn = document.createElement("button");
-deleteBtn.textContent = "🗑️";
-deleteBtn.onclick = () => deleteChat(chat.chat_id);
-
-controls.appendChild(renameBtn);
-controls.appendChild(deleteBtn);
-
-div.appendChild(span);
-div.appendChild(controls);
-            chatList.appendChild(div);
+            div.append(span, controls);
+            chatList.append(div);
           });
         });
     }
 
-    // === Seleziona chat ===
     function selectChat(chatId, chatName) {
       currentChatId = chatId;
       currentChatName.textContent = chatName;
       chatLog.innerHTML = "";
       socket.send("switch_chat:" + chatId);
-      fetch("http://localhost:8000/storico/" + chatId)
+
+      fetch(`http://localhost:8000/storico/${chatId}`)
         .then(res => res.json())
         .then(messages => {
           messages.forEach(({ prompt, response }) => {
-            const userDiv = document.createElement("div");
-            userDiv.className = "message user";
-            userDiv.textContent = prompt;
-            chatLog.appendChild(userDiv);
+            // Prompt storico
+            const taP = document.createElement("textarea");
+            taP.innerHTML = prompt;
+            const pt = taP.value;
+            const promptDiv = document.createElement("div");
+            promptDiv.className = "message user";
+            promptDiv.textContent = pt;
+            chatLog.append(promptDiv);
+
+            // Response storico
+            const taR = document.createElement("textarea");
+            taR.innerHTML = response;
+            const rt = taR.value;
+            const pre = document.createElement("pre");
+            pre.className = "code-block";
+            const code = document.createElement("code");
+            code.className = "language-javascript";
+            code.appendChild(document.createTextNode(rt));
+            pre.appendChild(code);
             const botDiv = document.createElement("div");
             botDiv.className = "message bot";
-            botDiv.textContent = response;
-            chatLog.appendChild(botDiv);
+            botDiv.append(pre);
+            chatLog.append(botDiv);
+            hljs.highlightElement(code);
           });
           chatLog.scrollTop = chatLog.scrollHeight;
-          loadChats(); // per aggiornare evidenziazione
+          loadChats();
         });
     }
 
-    // === Nuova chat ===
     function startNewChat() {
-      const newId = "chat_" + Date.now();
-      const defaultName = "Nuova Chat";
+      const id = "chat_" + Date.now();
       fetch("http://localhost:8000/chats", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: newId, nome: defaultName })
+        body: JSON.stringify({ chat_id: id, nome: "Nuova Chat" })
       }).then(() => {
-        selectChat(newId, defaultName);
+        selectChat(id, "Nuova Chat");
         loadChats();
       });
     }
 
-    // === Rinomina chat ===
     function renameChat(chatId) {
       const newName = prompt("Nuovo nome chat:");
       if (!newName) return;
-      fetch("http://localhost:8000/chats/" + chatId, {
+      fetch(`http://localhost:8000/chats/${chatId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ new_name: newName })
@@ -255,71 +253,55 @@ div.appendChild(controls);
       });
     }
 
-    // === Elimina chat ===
     function deleteChat(chatId) {
       if (!confirm("Vuoi davvero eliminare questa chat?")) return;
-      fetch("/chats/" + chatId, { method: "DELETE" })
+      fetch(`http://localhost:8000/chats/${chatId}`, { method: "DELETE" })
         .then(() => {
           if (chatId === currentChatId) chatLog.innerHTML = "";
           loadChats();
         });
     }
 
-    // === Invio messaggio ===
-    document.getElementById("chat-form").addEventListener("submit", function (e) {
+    document.getElementById("chat-form").addEventListener("submit", e => {
       e.preventDefault();
       const msg = chatInput.value.trim();
       if (!msg || !currentChatId) return;
-
-      const userDiv = document.createElement("div");
-      userDiv.className = "message user";
-      userDiv.textContent = msg;
-      chatLog.appendChild(userDiv);
-
-      const botDiv = document.createElement("div");
-      botDiv.className = "message bot";
-      botDiv.textContent = "...";
-      chatLog.appendChild(botDiv);
+      // Utente
+      const u = document.createElement("div");
+      u.className = "message user";
+      u.textContent = msg;
+      chatLog.append(u);
       chatInput.value = "";
-
+      // Bot placeholder
+      const bDiv = document.createElement("div");
+      bDiv.className = "message bot";
+      const p = document.createElement("pre");
+      p.className = "code-block";
+      const c = document.createElement("code");
+      c.className = "language-javascript";
+      p.append(c);
+      bDiv.append(p);
+      chatLog.append(bDiv);
       socket.send(msg);
-      let fullResponse = "";
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+      let buf = "";
+      socket.onmessage = ev => {
+        const data = JSON.parse(ev.data);
         if (data.response === "[FINE]") {
-          botDiv.textContent = fullResponse;
-          chatLog.scrollTop = chatLog.scrollHeight;
+          c.textContent = buf + "\n\n[End of answer]";
+          hljs.highlightElement(c);
         } else {
-          fullResponse += data.response;
-          botDiv.textContent = fullResponse;
+          buf += data.response;
+          c.textContent = buf;
         }
+        chatLog.scrollTop = chatLog.scrollHeight;
       };
     });
 
-    // === All'avvio ===
-    socket.onopen = () => {
-      loadChats();
-    };
-  
-// Rende accessibili le funzioni nel DOM
-window.startNewChat = startNewChat;
-window.renameChat = renameChat;
-window.deleteChat = deleteChat;
-window.selectChat = selectChat;
-
-// Abilita toggle sidebar
-document.getElementById("toggleSidebar").addEventListener("click", () => {
-  document.getElementById("sidebar").classList.toggle("hidden");
-});
-
-// Espone le funzioni globalmente per supportare gli onclick inline
-window.startNewChat = startNewChat;
-window.renameChat = renameChat;
-window.deleteChat = deleteChat;
-window.selectChat = selectChat;
-
-
-</script>
-
+    socket.onopen = () => loadChats();
+    document.getElementById("toggleSidebar")
+      .addEventListener("click", () => {
+        document.getElementById("sidebar").classList.toggle("hidden");
+      });
+  </script>
 </body>
 </html>
