@@ -284,6 +284,12 @@ async def websocket_stream(websocket: WebSocket):
                 print(f"[DEBUG] Switch chat ricevuto: {message}")
                 continue
 
+            # Preserve raw prompt with newlines for memory saving
+
+
+            raw_prompt = message
+
+
             prompt = clean_text(message)
             full_response = ""
 
@@ -309,7 +315,7 @@ async def websocket_stream(websocket: WebSocket):
                                 print("[DEBUG] Errore parsing stream:", e)
 
             await websocket.send_text(json.dumps({"response": "[FINE]"}))
-            save_memory(prompt, full_response, scope=current_chat)
+            save_memory(raw_prompt, full_response, scope=current_chat)
     except Exception as e:
         print("[WebSocket] Connessione chiusa:", e)
         try:
