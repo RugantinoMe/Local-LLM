@@ -15,10 +15,15 @@ import json
 import unicodedata
 import httpx
 import html
+import asyncio
 
+from rag_utils import chunk_text, build_rag_prompt, call_model_and_get_diff
+ 
 from fastapi import HTTPException
 
 from sentence_transformers import SentenceTransformer
+import json
+from rag_utils import chunk_text, build_rag_prompt
 
 # LangChain + Ollama definitivo
 from langchain_ollama import OllamaLLM
@@ -281,41 +286,58 @@ async def websocket_stream(websocket: WebSocket):
             message = await websocket.receive_text()
             if message.startswith("switch_chat:"):
                 current_chat = message.split(":", 1)[1]
-                print(f"[DEBUG] Switch chat ricevuto: {message}")
                 continue
 
-            # Preserve raw prompt with newlines for memory saving
+            raw = message
 
+            # 1) Chunking
+            chunks = chunk_text(raw)  # default max_tokens=1500
 
-            raw_prompt = message
-
-
-            prompt = clean_text(message)
-            full_response = ""
-
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream(
-                    "POST",
-                    "http://localhost:11434/api/generate",
-                    json={
-                        "model": "localmistralinstruct",
-                        "prompt": prompt,
-                        "stream": True
-                    }
-                ) as response:
-                    async for line in response.aiter_lines():
-                        if line.strip():
+            full_code = ""
+            # 2) Per ogni chunk, genera il codice ottimizzato in streaming
+            for idx, chunk in enumerate(chunks, start=1):
+                # istruzioni al modello: solo il codice ottimizzato di questo chunk
+                prompt_i = (
+                    f"[CHUNK {idx}/{len(chunks)}]\n"
+                    "Ecco il seguente chunk di codice da ottimizzare:\n"
+                    f"{chunk}\n"
+                    "Restituisci *solo* il codice ottimizzato, senza spiegazioni."
+                )
+                async with httpx.AsyncClient(timeout=None) as client:
+                    async with client.stream(
+                        "POST",
+                        "http://localhost:11434/api/generate",
+                        json={
+                            "model": "localmistralinstruct",
+                            "prompt": prompt_i,
+                            "stream": True
+                        }
+                    ) as resp:
+                        async for line in resp.aiter_lines():
+                            if not line.strip():
+                                continue
                             try:
-                                content = json.loads(line.split("data: ")[-1])
-                                token = content.get("response", "")
-                                if token:
-                                    full_response += token
-                                    await websocket.send_text(json.dumps({"response": token}))
-                            except Exception as e:
-                                print("[DEBUG] Errore parsing stream:", e)
+                                data = json.loads(line.split("data:")[-1])
+                                tok = data.get("response", "")
+                                if tok:
+                                    full_code += tok
+                                    # streamma subito al frontend
+                                    await websocket.send_text(json.dumps({"response": tok}))
+                            except:
+                                pass
 
+            # 3) Marco fine chunking
             await websocket.send_text(json.dumps({"response": "[FINE]"}))
-            save_memory(raw_prompt, full_response, scope=current_chat)
+
+            # 4) Invia il file completo in un unico blocco
+            await websocket.send_text(json.dumps({"response": full_code}))
+            
+            # 5) Marco fine completo
+            await websocket.send_text(json.dumps({"response": "[FINE COMPLETO]"}))
+
+            # 6) Salva in memoria raw_prompt e full_code
+            save_memory(raw, full_code, scope=current_chat)
+
     except Exception as e:
         print("[WebSocket] Connessione chiusa:", e)
         try:
@@ -323,7 +345,6 @@ async def websocket_stream(websocket: WebSocket):
                 await websocket.close()
         except:
             pass
-
 
 
 if __name__ == "__main__":
