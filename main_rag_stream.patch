@@ -1,0 +1,72 @@
+*** Begin Patch
+*** Update File: main.py
+@@
+-from rag_utils import chunk_text, build_rag_prompt
++import json
++from rag_utils import chunk_text, build_rag_prompt
+@@ async def websocket_stream(websocket: WebSocket):
+-            # Preserve raw prompt with newlines for memory saving
+-
+-            raw_prompt = message
+-
+-            prompt = clean_text(message)
+-            full_response = ""
+-
+-            async with httpx.AsyncClient(timeout=None) as client:
+-                async with client.stream(
+-                    "POST",
+-                    "http://localhost:11434/api/generate",
+-                    json={
+-                        "model": "localmistralinstruct",
+-                        "prompt": prompt,
+-                        "stream": True
+-                    }
+-                ) as response:
+-                    async for line in response.aiter_lines():
+-                        if line.strip():
+-                            try:
+-                                content = json.loads(line.split("data: ")[-1])
+-                                token = content.get("response", "")
+-                                if token:
+-                                    full_response += token
+-                                    await websocket.send_text(json.dumps({"response": token}))
+-                            except Exception as e:
+-                                print("[DEBUG] Errore parsing stream:", e)
+-
+-            await websocket.send_text(json.dumps({"response": "[FINE]"}))
+-            save_memory(raw_prompt, full_response, scope=current_chat)
++            # Chunking + RAG per testi o file lunghi con streaming
++            raw_prompt = message
++
++            # 1) Dividi in chunk sotto soglia tokenica
++            chunks = chunk_text(raw_prompt)
++
++            full_diff = ""
++            # 2) Per ogni chunk: prompt e streaming token-by-token
++            for idx, chunk in enumerate(chunks, start=1):
++                header = f"### Chunk {idx}/{len(chunks)}\n"
++                prompt_i = await build_rag_prompt(header + chunk, current_chat)
++
++                async with httpx.AsyncClient(timeout=None) as client:
++                    async with client.stream(
++                        "POST",
++                        "http://localhost:11434/api/generate",
++                        json={"model":"localmistralinstruct","prompt":prompt_i,"stream":True}
++                    ) as resp:
++                        async for line in resp.aiter_lines():
++                            if not line.strip():
++                                continue
++                            try:
++                                data = json.loads(line.split("data:")[-1])
++                                tok = data.get("response","")
++                                if tok:
++                                    full_diff += tok
++                                    await websocket.send_text(json.dumps({"response": tok}))
++                            except:
++                                pass
++
++            # 3) Segnala fine streaming
++            await websocket.send_text(json.dumps({"response":"[FINE]"}))
++            # 4) Salva in memoria raw_prompt e full_diff
++            save_memory(raw_prompt, full_diff, scope=current_chat)
+*** End Patch

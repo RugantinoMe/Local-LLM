@@ -87,8 +87,20 @@ conn.close()
 llm = OllamaLLM(
     model="localmistralinstruct",
     base_url="http://localhost:11434",
-    system_message="Sei un assistente conversazionale. Rispondi in modo naturale, amichevole ma conciso, mantenendo solo le informazioni tecnicamente essenziali.",
-    options={"num_predict": 50, "temperature": 0.5, "top_k": 1, "seed": 42, "repeat_last_n": 40}
+    system_message=(
+        "Sei un codice-editor esperto. Quando ti invio un file di codice, "
+        "devi restituire esattamente lo stesso file, "
+        "modificando solo le parti richieste e lasciando inalterate "
+        "tutte le altre. Se il file è lungo, spezzalo in chunk "
+        "Alla fine riuniscilo in un unico blocco di codice completo."
+    ),
+    options={
+        "num_predict": 50,
+        "temperature": 0.5,
+        "top_k": 1,
+        "seed": 42,
+        "repeat_last_n": 40
+    }
 )
 
 memory_obj = SQLChatMessageHistory(
@@ -296,13 +308,9 @@ async def websocket_stream(websocket: WebSocket):
             full_code = ""
             # 2) Per ogni chunk, genera il codice ottimizzato in streaming
             for idx, chunk in enumerate(chunks, start=1):
-                # istruzioni al modello: solo il codice ottimizzato di questo chunk
-                prompt_i = (
-                    f"[CHUNK {idx}/{len(chunks)}]\n"
-                    "Ecco il seguente chunk di codice da ottimizzare:\n"
-                    f"{chunk}\n"
-                    "Restituisci *solo* il codice ottimizzato, senza spiegazioni."
-                )
+                # Usa il prompt costruito da rag_utils (istruzioni vincolanti)
+                prompt_i = await build_rag_prompt(chunk, current_chat)
+            
                 async with httpx.AsyncClient(timeout=None) as client:
                     async with client.stream(
                         "POST",
@@ -331,20 +339,14 @@ async def websocket_stream(websocket: WebSocket):
 
             # 4) Invia il file completo in un unico blocco
             await websocket.send_text(json.dumps({"response": full_code}))
-            
-            # 5) Marco fine completo
-            await websocket.send_text(json.dumps({"response": "[FINE COMPLETO]"}))
 
-            # 6) Salva in memoria raw_prompt e full_code
+            # 5) Salva in memoria raw_prompt e full_code
             save_memory(raw, full_code, scope=current_chat)
 
     except Exception as e:
         print("[WebSocket] Connessione chiusa:", e)
-        try:
-            if websocket.client_state != WebSocketState.DISCONNECTED:
-                await websocket.close()
-        except:
-            pass
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.close()
 
 
 if __name__ == "__main__":
